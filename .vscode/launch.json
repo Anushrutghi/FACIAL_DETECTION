@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "C/C++ Runner: Debug Session",
+      "type": "lldb",
+      "request": "launch",
+      "args": [],
+      "cwd": "/Volumes/Anushrut's Sata M1/facial_recognition_system/database/faces",
+      "program": "/Volumes/Anushrut's Sata M1/facial_recognition_system/database/faces/build/Debug/outDebug"
+    }
+  ]
+}

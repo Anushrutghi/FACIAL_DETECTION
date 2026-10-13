@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Air Drawing</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .app {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            background: black;
+        }
+
+        .stage {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        video, canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        video {
+            transform: scaleX(-1);
+        }
+
+        canvas {
+            transform: scaleX(-1);
+            pointer-events: none;
+        }
+
+        .controls {
+            position: absolute;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.55);
+            padding: 8px 12px;
+            border-radius: 999px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .tool {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 13px;
+            color: #e2e8f0;
+        }
+
+        button {
+            padding: 10px 14px;
+            border: none;
+            border-radius: 999px;
+            cursor: pointer;
+            background: #2563eb;
+            color: white;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        input[type="color"] {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        input[type="range"] {
+            cursor: pointer;
+        }
+
+        #status {
+            position: absolute;
+            bottom: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.55);
+            padding: 8px 12px;
+            border-radius: 999px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <div class="controls">
+            <button id="startBtn">Start Camera</button>
+            <button id="clearBtn">Clear</button>
+
+            <label class="tool">
+                <span>Color</span>
+                <input id="colorPicker" type="color" value="#22c55e" />
+            </label>
+
+            <label class="tool">
+                <span>Size</span>
+                <input id="brushSize" type="range" min="1" max="30" value="4" />
+            </label>
+
+            <button id="eraserBtn">Eraser: Off</button>
+        </div>
+
+        <div class="stage">
+            <video id="video" autoplay muted playsinline></video>
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <div id="status">Camera is off</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+
+    <script>
+        const video = document.getElementById("video");
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        const statusEl = document.getElementById("status");
+
+        const startBtn = document.getElementById("startBtn");
+        const clearBtn = document.getElementById("clearBtn");
+        const colorPicker = document.getElementById("colorPicker");
+        const brushSizeInput = document.getElementById("brushSize");
+        const eraserBtn = document.getElementById("eraserBtn");
+
+        let lastPoint = null;
+        let stream = null;
+        let running = false;
+
+        let color = "#22c55e";
+        let brushSize = 4;
+        let eraserMode = false;
+
+        let strokes = [];
+        let activeStroke = null;
+
+        let view = {
+            scale: 1,
+            offsetX: 0,
+            offsetY: 0
+        };
+
+        let gestureActive = false;
+        let gestureStart = null;
+
+        function resizeCanvas() {
+            const vw = video.videoWidth || window.innerWidth;
+            const vh = video.videoHeight || window.innerHeight;
+            canvas.width = vw;
+            canvas.height = vh;
+            renderAllStrokes();
+        }
+
+        function clearCanvas() {
+            strokes = [];
+            activeStroke = null;
+            lastPoint = null;
+            renderAllStrokes();
+        }
+
+        function updateEraserButton() {
+            eraserBtn.textContent = eraserMode ? "Eraser: On" : "Eraser: Off";
+            eraserBtn.style.background = eraserMode ? "#ef4444" : "#2563eb";
+        }
+
+        function renderAllStrokes() {
+            if (!canvas.width || !canvas.height) return;
+
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.save();
+            ctx.translate(view.offsetX, view.offsetY);
+            ctx.scale(view.scale, view.scale);
+
+            for (const stroke of strokes) {
+                if (!stroke.points || stroke.points.length < 1) continue;
+
+                ctx.save();
+                if (stroke.mode === "erase") {
+                    ctx.globalCompositeOperation = "destination-out";
+                } else {
+                    ctx.globalCompositeOperation = "source-over";
+                }
+
+                ctx.strokeStyle = stroke.color;
+                ctx.lineWidth = stroke.width;
+                ctx.lineCap = "round";
+                ctx.lineJoin = "round";
+
+                ctx.beginPath();
+                stroke.points.forEach((pt, index) => {
+                    if (index === 0) ctx.moveTo(pt.x, pt.y);
+                    else ctx.lineTo(pt.x, pt.y);
+                });
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            if (activeStroke && activeStroke.points && activeStroke.points.length > 0) {
+                ctx.save();
+                if (activeStroke.mode === "erase") {
+                    ctx.globalCompositeOperation = "destination-out";
+                } else {
+                    ctx.globalCompositeOperation = "source-over";
+                }
+
+                ctx.strokeStyle = activeStroke.color;
+                ctx.lineWidth = activeStroke.width;
+                ctx.lineCap = "round";
+                ctx.lineJoin = "round";
+
+                ctx.beginPath();
+                activeStroke.points.forEach((pt, index) => {
+                    if (index === 0) ctx.moveTo(pt.x, pt.y);
+                    else ctx.lineTo(pt.x, pt.y);
+                });
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            ctx.restore();
+        }
+
+        function projectPoint(landmark) {
+            return {
+                x: landmark.x * canvas.width,
+                y: landmark.y * canvas.height
+            };
+        }
+
+        function clamp(value, min, max) {
+            return Math.min(max, Math.max(min, value));
+        }
+
+        async function startCamera() {
+            try {
+                if (!stream) {
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: "user" },
+                        audio: false
+                    });
+                }
+
+                video.srcObject = stream;
+                await video.play();
+                resizeCanvas();
+                running = true;
+                statusEl.textContent = "Camera on — one finger draws, two fingers move/zoom";
+                requestAnimationFrame(processFrame);
+            } catch (err) {
+                statusEl.textContent = "Camera access denied";
+                console.error(err);
+            }
+        }
+
+        async function processFrame() {
+            if (!running) return;
+
+            if (video.readyState >= video.HAVE_CURRENT_DATA) {
+                await hands.send({ image: video });
+            }
+
+            requestAnimationFrame(processFrame);
+        }
+
+        startBtn.addEventListener("click", startCamera);
+        clearBtn.addEventListener("click", clearCanvas);
+
+        colorPicker.addEventListener("input", (e) => {
+            color = e.target.value;
+        });
+
+        brushSizeInput.addEventListener("input", (e) => {
+            brushSize = Number(e.target.value);
+        });
+
+        eraserBtn.addEventListener("click", () => {
+            eraserMode = !eraserMode;
+            updateEraserButton();
+        });
+
+        const hands = new window.Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.7,
+            minTrackingConfidence: 0.7
+        });
+
+        hands.onResults((results) => {
+            if (!running) return;
+
+            const landmarks = results.multiHandLandmarks && results.multiHandLandmarks.length > 0
+                ? results.multiHandLandmarks[0]
+                : null;
+
+            if (!landmarks) {
+                if (activeStroke && activeStroke.points && activeStroke.points.length > 0) {
+                    strokes.push(activeStroke);
+                    activeStroke = null;
+                }
+                lastPoint = null;
+                gestureActive = false;
+                gestureStart = null;
+                statusEl.textContent = "Camera on — one finger draws, two fingers move/zoom";
+                renderAllStrokes();
+                return;
+            }
+
+            const thumb = landmarks[4];
+            const index = landmarks[8];
+
+            if (thumb && index) {
+                const thumbPoint = projectPoint(thumb);
+                const indexPoint = projectPoint(index);
+
+                const centerX = (thumbPoint.x + indexPoint.x) / 2;
+                const centerY = (thumbPoint.y + indexPoint.y) / 2;
+
+                const distance = Math.hypot(indexPoint.x - thumbPoint.x, indexPoint.y - thumbPoint.y);
+
+                if (gestureActive && gestureStart) {
+                    const startDistance = Math.hypot(
+                        gestureStart.index.x - gestureStart.thumb.x,
+                        gestureStart.index.y - gestureStart.thumb.y
+                    );
+
+                    const scaleFactor = startDistance > 0 ? distance / startDistance : 1;
+                    view.scale = clamp(gestureStart.view.scale * scaleFactor, 0.4, 4);
+
+                    view.offsetX = gestureStart.view.offsetX + (centerX - gestureStart.center.x);
+                    view.offsetY = gestureStart.view.offsetY + (centerY - gestureStart.center.y);
+
+                    renderAllStrokes();
+                    statusEl.textContent = "Transforming drawing...";
+                    lastPoint = null;
+                    return;
+                }
+
+                if (!gestureActive) {
+                    gestureActive = true;
+                    gestureStart = {
+                        thumb: thumbPoint,
+                        index: indexPoint,
+                        center: { x: centerX, y: centerY },
+                        view: { ...view }
+                    };
+                }
+            }
+
+            gestureActive = false;
+            gestureStart = null;
+
+            const fingertip = landmarks[8];
+            if (fingertip) {
+                const point = projectPoint(fingertip);
+
+                if (!activeStroke) {
+                    activeStroke = {
+                        points: [],
+                        color: eraserMode ? "#000000" : color,
+                        width: brushSize,
+                        mode: eraserMode ? "erase" : "draw"
+                    };
+                }
+
+                if (!lastPoint) {
+                    activeStroke.points.push(point);
+                } else {
+                    activeStroke.points.push(point);
+                }
+
+                renderAllStrokes();
+                lastPoint = point;
+                statusEl.textContent = "Drawing...";
+            } else {
+                if (activeStroke && activeStroke.points && activeStroke.points.length > 0) {
+                    strokes.push(activeStroke);
+                    activeStroke = null;
+                }
+                lastPoint = null;
+                statusEl.textContent = "Camera on — one finger draws, two fingers move/zoom";
+            }
+        });
+
+        video.addEventListener("loadedmetadata", resizeCanvas);
+        window.addEventListener("resize", resizeCanvas);
+
+        updateEraserButton();
+    </script>
+</body>
+</html>
