@@ -1,0 +1,47 @@
+{
+  "tracking": {
+    "max_hands": 2,
+    "detection_confidence": 0.7,
+    "tracking_confidence": 0.7,
+    "smoothing_alpha": 0.25,
+    "smoothing_alpha_draw": 0.35,
+    "debounce_frames": 3
+  },
+  "gestures": {
+    "pinch_threshold_ratio": 0.32,
+    "pinch_release_ratio": 0.42,
+    "pinch_drag_delay_sec": 0.35,
+    "palm_pause_enabled": true,
+    "fist_action": "clear",
+    "open_palm_action": "pause",
+    "peace_action": "eraser",
+    "two_fingers_action": "menu"
+  },
+  "drawing": {
+    "default_thickness": 8,
+    "min_thickness": 2,
+    "max_thickness": 36,
+    "default_color_idx": 0,
+    "palette": [
+      {"name": "CYAN", "bgr": [255, 220, 0]},
+      {"name": "NEON_GREEN", "bgr": [0, 255, 128]},
+      {"name": "MAGENTA", "bgr": [255, 0, 220]},
+      {"name": "AMBER", "bgr": [0, 165, 255]},
+      {"name": "ELECTRIC_BLUE", "bgr": [255, 100, 0]},
+      {"name": "WHITE", "bgr": [255, 255, 255]}
+    ],
+    "two_hand_dual_draw": true
+  },
+  "hud": {
+    "theme": "phantom_scifi",
+    "show_landmarks": true,
+    "show_reticle": true,
+    "show_telemetry": true,
+    "reticle_radius": 14
+  },
+  "calibration": {
+    "sensitivity_x": 1.0,
+    "sensitivity_y": 1.0,
+    "deadzone": 0.02
+  }
+}
